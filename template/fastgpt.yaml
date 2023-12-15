@@ -1,0 +1,539 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: fastgpt
+spec:
+  title: 'FastGPT'
+  url: 'https://ai.fastgpt.in/'
+  gitRepo: 'https://github.com/labring/FastGPT'
+  author: 'sealos'
+  description: 'FastGPT 是一个基于 LLM 大语言模型的知识库问答系统，提供开箱即用的数据处理、模型调用等能力。同时可以通过 Flow 可视化进行工作流编排，从而实现复杂的问答场景！'
+  readme: 'https://jsd.onmicrosoft.cn/gh/labring/FastGPT@main/README.md'
+  icon: 'https://jsd.onmicrosoft.cn/gh/labring/FastGPT@main/.github/imgs/logo.svg'
+  templateType: inline
+  defaults:
+    app_name:
+      type: string
+      value: fastgpt
+    app_host:
+      type: string
+      value: fastgpt
+    session_secret:
+      type: string
+      value: ${{ random(8) }}
+    root_key:
+      type: string
+      value: ${{ random(8) }}
+  inputs:
+    root_password:
+      description: 'root 用户密码，用户名为: root'
+      type: string
+      default: ''
+      required: true
+    base_url:
+      description: 'API 基础地址，官方 Key 不需要改'
+      type: string
+      default: 'https://api.openai.com/v1'
+      required: true
+    api_key:
+      description: 'openai api key'
+      type: string
+      default: ''
+      required: true
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:latest
+          env:
+            - name: MONGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-conn-credential
+                  key: password
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DEFAULT_ROOT_PSW
+              value: ${{ inputs.root_password }}
+            - name: OPENAI_BASE_URL
+              value: ${{ inputs.base_url }}
+            - name: CHAT_API_KEY
+              value: ${{ inputs.api_key }}
+            - name: DB_MAX_LINK
+              value: '30'
+            - name: TOKEN_KEY
+              value: ${{ defaults.session_secret }}
+            - name: ROOT_KEY
+              value: ${{ defaults.root_key }}}
+            - name: FILE_TOKEN_KEY
+              value: filetoken
+            - name: MONGODB_URI
+              value: >-
+                mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/fastgpt?authSource=admin
+            - name: PG_URL
+              value: >-
+                postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/postgres
+          resources:
+            requests:
+              cpu: 50m
+              memory: 25Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 3000
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: vn-appvn-datavn-configvn-json
+              mountPath: /app/data/config.json
+              subPath: ./app/data/config.json
+      volumes:
+        - name: vn-appvn-datavn-configvn-json
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-appvn-datavn-configvn-json
+                path: ./app/data/config.json
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+data:
+  vn-appvn-datavn-configvn-json: |
+    {
+      "SystemParams": {
+        "pluginBaseUrl": "",
+        "openapiPrefix": "openapi",
+        "vectorMaxProcess": 10,
+        "qaMaxProcess": 10,
+        "pgHNSWEfSearch": 100
+      },
+      "ChatModels": [
+        {
+          "model": "gpt-3.5-turbo-1106",
+          "name": "GPT35-1106",
+          "price": 0,
+          "maxContext": 16000,
+          "maxResponse": 4000,
+          "quoteMaxToken": 2000,
+          "maxTemperature": 1.2,
+          "censor": false,
+          "defaultSystemChatPrompt": ""
+        },
+        {
+          "model": "gpt-3.5-turbo-16k",
+          "name": "GPT35-16k",
+          "maxContext": 16000,
+          "maxResponse": 16000,
+          "price": 0,
+          "quoteMaxToken": 8000,
+          "maxTemperature": 1.2,
+          "censor": false,
+          "defaultSystemChatPrompt": ""
+        },
+        {
+          "model": "gpt-4",
+          "name": "GPT4-8k",
+          "maxContext": 8000,
+          "maxResponse": 8000,
+          "price": 0,
+          "quoteMaxToken": 4000,
+          "maxTemperature": 1.2,
+          "censor": false,
+          "defaultSystemChatPrompt": ""
+        }
+      ],
+      "QAModels": [
+        {
+          "model": "gpt-3.5-turbo-16k",
+          "name": "GPT35-16k",
+          "maxContext": 16000,
+          "maxResponse": 16000,
+          "price": 0
+        }
+      ],
+      "CQModels": [
+        {
+          "model": "gpt-3.5-turbo-1106",
+          "name": "GPT35-1106",
+          "maxContext": 16000,
+          "maxResponse": 4000,
+          "price": 0,
+          "functionCall": true,
+          "functionPrompt": ""
+        },
+        {
+          "model": "gpt-4",
+          "name": "GPT4-8k",
+          "maxContext": 8000,
+          "maxResponse": 8000,
+          "price": 0,
+          "functionCall": true,
+          "functionPrompt": ""
+        }
+      ],
+      "ExtractModels": [
+        {
+          "model": "gpt-3.5-turbo-1106",
+          "name": "GPT35-1106",
+          "maxContext": 16000,
+          "maxResponse": 4000,
+          "price": 0,
+          "functionCall": true,
+          "functionPrompt": ""
+        }
+      ],
+      "QGModels": [
+        {
+          "model": "gpt-3.5-turbo-1106",
+          "name": "GPT35-1106",
+          "maxContext": 1600,
+          "maxResponse": 4000,
+          "price": 0
+        }
+      ],
+      "VectorModels": [
+        {
+          "model": "text-embedding-ada-002",
+          "name": "Embedding-2",
+          "price": 0.2,
+          "defaultToken": 700,
+          "maxToken": 3000
+        }
+      ],
+      "AudioSpeechModels": [
+        {
+          "model": "tts-1",
+          "name": "OpenAI TTS1",
+          "price": 0,
+          "baseUrl": "",
+          "key": "",
+          "voices": [
+            { "label": "Alloy", "value": "alloy", "bufferId": "openai-Alloy" },
+            { "label": "Echo", "value": "echo", "bufferId": "openai-Echo" },
+            { "label": "Fable", "value": "fable", "bufferId": "openai-Fable" },
+            { "label": "Onyx", "value": "onyx", "bufferId": "openai-Onyx" },
+            { "label": "Nova", "value": "nova", "bufferId": "openai-Nova" },
+            { "label": "Shimmer", "value": "shimmer", "bufferId": "openai-Shimmer" }
+          ]
+        }
+      ],
+      "WhisperModel": {
+        "model": "whisper-1",
+        "name": "Whisper1",
+        "price": 0
+      }
+    }
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 3000
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 1g
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: mongodb
+    clusterversion.kubeblocks.io/name: mongodb-5.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+  annotations: {}
+  name: ${{ defaults.app_name }}-mongo
+  generation: 1
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: mongodb
+  clusterVersionRef: mongodb-5.0
+  backup:
+    enabled: true
+    cronExpression: 0 18 * * *
+    method: backupTool
+    pitrEnabled: false
+    retentionPeriod: 7d
+  componentSpecs:
+    - componentDefRef: mongodb
+      monitor: true
+      name: mongodb
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-mongo
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mongo
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mongo
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - events
+    verbs:
+      - create
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mongo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mongo
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mongo
+    namespace: ${{ SEALOS_NAMESPACE}}
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations: {}
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  backup:
+    enabled: true
+    cronExpression: 0 18 * * *
+    method: backupTool
+    pitrEnabled: false
+    retentionPeriod: 7d
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - events
+    verbs:
+      - create
+  - apiGroups:
+      - ''
+    resources:
+      - configmaps
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+      - watch
+      - delete
+  - apiGroups:
+      - ''
+    resources:
+      - endpoints
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+      - watch
+      - delete
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+    namespace: ${{ SEALOS_NAMESPACE }}
